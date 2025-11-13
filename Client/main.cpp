@@ -7,6 +7,8 @@
 #include<ws2tcpip.h>
 #include<iphlpapi.h>
 #include<iostream>
+#include<string> // Для использования std::string и std::cin
+#include<limits> // Для std::numeric_limits
 using namespace std;
 
 #pragma comment(lib, "WS2_32.lib")
@@ -17,8 +19,6 @@ using namespace std;
 int main()
 {
 	setlocale(LC_ALL, "");
-	cout << "Hello Winsock" << endl;
-
 	INT iResult = 0;
 	DWORD dwLastError = 0;
 
@@ -30,6 +30,7 @@ int main()
 		cout << "WSAStartup failed: " << iResult << endl;
 		return iResult;
 	}
+	cout << "WinSock initialized\n" << endl;
 
 	//1) Создаём переменную для хранения информации о сокете
 	addrinfo* result = NULL;
@@ -48,6 +49,7 @@ int main()
 		WSACleanup();
 		return iResult;
 	}
+	cout << "Address info obtained\n" << endl;
 
 	//3) Создаём сокет для подключения к серверу
 	ptr = result;
@@ -61,8 +63,9 @@ int main()
 		return dwLastError;
 
 	}
+	cout << "Connect socket created\n" << endl;
 
-	//4) Плдключаемся к серверу
+	//4) Подключаемся к серверу
 	iResult = connect(connect_socket, ptr->ai_addr, (INT)ptr->ai_addrlen);
 	if (iResult == SOCKET_ERROR)
 	{
@@ -73,39 +76,83 @@ int main()
 		WSACleanup();
 		return dwLastError;
 	}
-	//5) Отправляем данные на сервер
-	CHAR send_buffer[BUFFER_LENGTH] = "Hello, Server! I am a client!";
-	iResult = send(connect_socket, send_buffer, strlen(send_buffer), 0);
-	if (iResult == SOCKET_ERROR)
-	{
-		dwLastError = WSAGetLastError();
-		cout << "Send failed with error: " << dwLastError << endl;
-		closesocket(connect_socket);
-		freeaddrinfo(result);
-		WSACleanup();
-		return dwLastError;
-	}
-	cout << iResult << " Bytes sent" << endl;
+	cout << "Connected to server\n" << endl;
 
-	//6) Ожидаем ответ от сервера
-	CHAR recv_buffer[BUFFER_LENGTH] = {};
+	//5) Отправляем данные на сервер
+	string message;
+	const string exit_command_str = "exit"; // Для сравнения с введенным сообщением
+	const string quit_command_str = "quit";
+
 	do
 	{
-		iResult = recv(connect_socket, recv_buffer, BUFFER_LENGTH, 0);
-		if (iResult > 0)cout << iResult << " Bytes received, Message:\t" << recv_buffer << ".\n";
-		else if (iResult == 0)cout << "Connection closed" << endl;
-		else cout << "Receive failed with error: " << WSAGetLastError() << endl;
-	} while (iResult > 0);
+		cout << "Enter message (or 'exit'/'quit' to quit): ";
+		// Читаем строку с клавиатуры
+		getline(cin, message);
 
-	//7) Отключение сервера
+		if (message == exit_command_str || message == quit_command_str)
+		{
+			iResult = send(connect_socket, message.c_str(), message.length(), 0);
+			if (iResult == SOCKET_ERROR)
+			{
+				dwLastError = WSAGetLastError();
+				cout << "Send exit command failed with error: " << dwLastError << endl;
+			}
+			else
+			{
+				cout << "Sent exit command (" << iResult << " bytes)." << endl;
+			}
+			break;
+		}
+
+		// Отправляем сообщение на сервер
+		iResult = send(connect_socket, message.c_str(), message.length(), 0);
+		if (iResult == SOCKET_ERROR)
+		{
+			dwLastError = WSAGetLastError();
+			cout << "Send failed with error: " << dwLastError << endl;
+			break;
+		}
+		cout << iResult << " Bytes sent." << endl;
+
+		// Ожидаем ответ от сервера
+		CHAR recv_buffer[BUFFER_LENGTH] = {};
+		iResult = recv(connect_socket, recv_buffer, BUFFER_LENGTH - 1, 0); // Оставляем место для null-терминатора
+		if (iResult > 0)
+		{
+			recv_buffer[iResult] = '\0'; // Добавляем null-терминатор
+			cout << "Received from server (" << iResult << " bytes): " << recv_buffer << endl;
+		}
+		else if (iResult == 0)
+		{
+			cout << "Server closed the connection." << endl;
+			break; // Сервер отключился
+		}
+		else
+		{
+			dwLastError = WSAGetLastError();
+			cout << "Receive failed with error: " << dwLastError << endl;
+			break; // Ошибка при получении
+		}
+
+	} while (true); // Цикл будет прерван break'ом
+
+	//6) Ожидаем ответ от сервера
 	iResult = shutdown(connect_socket, SD_SEND);
 	if (iResult == SOCKET_ERROR)
 	{
 		dwLastError = WSAGetLastError();
-		cout << "Shutdown failes with error: " << dwLastError << endl;
+		cout << "Shutdown failed with error: " << dwLastError << endl;
 	}
+	else
+	{
+		cout << "Shutdown initiated\n" << endl;
+	}
+
+	//7) Отключение сервера
 	closesocket(connect_socket);
+	cout << "Connect socket closed\n" << endl;
 	freeaddrinfo(result);
 	WSACleanup();
-	return dwLastError;
+	cout << "WinSock cleaned up\n" << endl;
+	return 0;
 }
