@@ -1,46 +1,47 @@
 ﻿#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif // !WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN		//Только при подключении <Windows.h>
+#endif // !WIN32_LEAN_AND_MEAN 
+
 
 #include<Windows.h>
 #include<WinSock2.h>
-#include<ws2tcpip.h>
+#include<WS2tcpip.h>
 #include<iphlpapi.h>
 #include<iostream>
 using namespace std;
 
 #pragma comment(lib, "WS2_32.lib")
 
-#define DEFAULT_PORT "27015"
-#define BUFFER_LENGTH 1460
+#define DEFAULT_PORT	"27015"
+#define BUFFER_LENGTH	1460
 
 int main()
 {
 	setlocale(LC_ALL, "");
-	cout << "Hello Winsock" << endl;
+	cout << "Hello WinSock" << endl;
 
 	INT iResult = 0;
 	DWORD dwLastError = 0;
 
-	//0) Инициализация Winsock
+	//0) Инициализация WinSock:
 	WSADATA wsaData;
-	iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);//MAKEWORD(2, 2) эадаёт версию Winsock
+	iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);	//MAKEWORD(2,2) - задает версию WinSock
 	if (iResult != 0)
 	{
 		cout << "WSAStartup failed: " << iResult << endl;
 		return iResult;
 	}
 
-	//1) Создаём переменную для хранения информации о сокете
+	//1) Создаем переменные для хранения информации о сокете:
 	addrinfo* result = NULL;
 	addrinfo* ptr = NULL;
-	addrinfo hints;
+	addrinfo hints = { 0 };
 	ZeroMemory(&hints, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
 
-	//2) Задаём информацию о сервере, к которому будем подключаться
+	//2) Задаем информацию о Сервере к которуму будем подключаться:
 	iResult = getaddrinfo("127.0.0.1", DEFAULT_PORT, &hints, &result);
 	if (iResult != 0)
 	{
@@ -49,7 +50,7 @@ int main()
 		return iResult;
 	}
 
-	//3) Создаём сокет для подключения к серверу
+	//3) Создаем Cокет для подключения к Серверу:
 	ptr = result;
 	SOCKET connect_socket = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
 	if (connect_socket == INVALID_SOCKET)
@@ -59,10 +60,9 @@ int main()
 		freeaddrinfo(result);
 		WSACleanup();
 		return dwLastError;
-
 	}
 
-	//4) Плдключаемся к серверу
+	//4) Подключаемся к Серверу:
 	iResult = connect(connect_socket, ptr->ai_addr, (INT)ptr->ai_addrlen);
 	if (iResult == SOCKET_ERROR)
 	{
@@ -73,36 +73,47 @@ int main()
 		WSACleanup();
 		return dwLastError;
 	}
-	//5) Отправляем данные на сервер
-	CHAR send_buffer[BUFFER_LENGTH] = "Hello, Server! I am a client!";
-	iResult = send(connect_socket, send_buffer, strlen(send_buffer), 0);
-	if (iResult == SOCKET_ERROR)
-	{
-		dwLastError = WSAGetLastError();
-		cout << "Send failed with error: " << dwLastError << endl;
-		closesocket(connect_socket);
-		freeaddrinfo(result);
-		WSACleanup();
-		return dwLastError;
-	}
-	cout << iResult << " Bytes sent" << endl;
 
-	//6) Ожидаем ответ от сервера
-	CHAR recv_buffer[BUFFER_LENGTH] = {};
+	//5) Отправляем данные на Сервер:
+	CHAR send_buffer[BUFFER_LENGTH] = "Hello Server, I am client";
 	do
 	{
-		iResult = recv(connect_socket, recv_buffer, BUFFER_LENGTH, 0);
-		if (iResult > 0)cout << iResult << " Bytes received, Message:\t" << recv_buffer << ".\n";
-		else if (iResult == 0)cout << "Connection closed" << endl;
-		else cout << "Receive failed with error: " << WSAGetLastError() << endl;
-	} while (iResult > 0);
+		iResult = send(connect_socket, send_buffer, strlen(send_buffer), 0);
+		if (iResult == SOCKET_ERROR)
+		{
+			dwLastError = WSAGetLastError();
+			cout << "Send failed with error: " << dwLastError << endl;
+			closesocket(connect_socket);
+			freeaddrinfo(result);
+			WSACleanup();
+			return dwLastError;
+		}
+		cout << iResult << " Bytes sent" << endl;
 
-	//7) Отключение сервера
+		//6)Ожидаем ответ от Сервера:
+		CHAR recv_buffer[BUFFER_LENGTH] = {};
+		//do
+		{
+			iResult = recv(connect_socket, recv_buffer, BUFFER_LENGTH, 0);
+			if (iResult > 0)cout << iResult << " Bytes received, Message:\t" << recv_buffer << ".\n";
+			else if (iResult == 0) cout << "Connection closed" << endl;
+			else cout << "Receive failed with error: " << WSAGetLastError() << endl;
+		} //while (iResult > 0);
+		/////////////////////////////////////////////
+		ZeroMemory(send_buffer, BUFFER_LENGTH);
+		cout << "Введите сообщение: ";
+		SetConsoleCP(1251);
+		cin.getline(send_buffer, BUFFER_LENGTH);
+		SetConsoleCP(866);
+	} while (strstr(send_buffer, "exit") == 0 && strstr(send_buffer, "quit") == 0);
+	//} while (strcmp(send_buffer, "exit") != 0 && strcmp(send_buffer, "quit") != 0);
+
+	//7)Отключение от Сервера:
 	iResult = shutdown(connect_socket, SD_SEND);
 	if (iResult == SOCKET_ERROR)
 	{
 		dwLastError = WSAGetLastError();
-		cout << "Shutdown failes with error: " << dwLastError << endl;
+		cout << "Shutdown failed with error: " << dwLastError << endl;
 	}
 	closesocket(connect_socket);
 	freeaddrinfo(result);

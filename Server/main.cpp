@@ -11,16 +11,20 @@ using namespace std;
 
 #pragma comment(lib, "WS2_32.lib")
 
-#define DEFAULT_PORT "27015"
-#define BUFFER_LENGTH 1460
+#define DEFAULT_PORT	"27015"
+#define BUFFER_LENGTH	  1460
+#define MAX_CLIENTS			 5
+
+VOID HandleClient(SOCKET client_socket);
 
 int main()
 {
 	setlocale(LC_ALL, "");
+
 	DWORD dwLastError = 0;
 	INT iResult = 0;
-	
-	//0)Инициализируем WinSock
+
+	//0)Инициализируем WinSock:
 	WSADATA wsaData;
 	iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
 	if (iResult != 0)
@@ -30,7 +34,7 @@ int main()
 		return dwLastError;
 	}
 
-	//1) Инициализируем переменную для сокета
+	//1) Инициализируем переменные для сокета:
 	addrinfo* result = NULL;
 	addrinfo* ptr = NULL;
 	addrinfo hints;
@@ -40,7 +44,7 @@ int main()
 	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_flags = AI_PASSIVE;
 
-	//2) Задаём параметры сокета
+	//2) Задаем параметры сокета:
 	iResult = getaddrinfo(NULL, DEFAULT_PORT, &hints, &result);
 	if (iResult != 0)
 	{
@@ -51,80 +55,102 @@ int main()
 		return dwLastError;
 	}
 
-	//3) Создаём сокет, который будет прослушивать сервер
+	//3) Создаем сокет, который будет прослушивать Сервер:
 	SOCKET listen_socket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
 	if (listen_socket == INVALID_SOCKET)
 	{
 		dwLastError = WSAGetLastError();
-		cout << "Socket creation failed with error " << dwLastError << endl;
+		cout << "Socket creation failed with error: " << dwLastError << endl;
 		freeaddrinfo(result);
 		WSACleanup();
 		return dwLastError;
 	}
-	//4) Bind socket
+
+	//4) Bind socket:
 	iResult = bind(listen_socket, result->ai_addr, result->ai_addrlen);
 	if (iResult == SOCKET_ERROR)
 	{
 		dwLastError = WSAGetLastError();
-		cout << "Bind failed with error " << dwLastError << endl;
+		cout << "Bind failed with error: " << dwLastError << endl;
 		closesocket(listen_socket);
 		freeaddrinfo(result);
 		WSACleanup();
 		return dwLastError;
 	}
-	//5) Запускаем прослушивание сокета
+
+	//5) Запускаем прослшивание сокета:
 	iResult = listen(listen_socket, SOMAXCONN);
 	if (iResult == SOCKET_ERROR)
 	{
 		dwLastError = WSAGetLastError();
-		cout << "Listen failed with error " << dwLastError << endl;
+		cout << "Listen failed with error: " << dwLastError << endl;
 		closesocket(listen_socket);
 		freeaddrinfo(result);
 		WSACleanup();
 		return dwLastError;
 	}
-	//6) Обработка запросов от клиента
-	SOCKET client_socket = accept(listen_socket, NULL, NULL);
-	if (client_socket == INVALID_SOCKET)
-	{
-		dwLastError = WSAGetLastError();
-		cout << "Accept failed with error " << dwLastError << endl;
-		closesocket(listen_socket);
-		freeaddrinfo(result);
-		WSACleanup();
-		return dwLastError;
-	}
-	//7) Получение сообщения от клиента
-	CHAR send_buffer[BUFFER_LENGTH] = "Привет, клиент";
-	CHAR recv_buffer[BUFFER_LENGTH] = {};
-	INT iSendResult = 0;
 
+	//6) Обработка запросов от клиентов:
+	INT n = 0;	//Количество активных клиентов
+	SOCKET client_sockets[MAX_CLIENTS] = {};
+	DWORD threadIDs[MAX_CLIENTS] = {};
+	HANDLE hThreads[MAX_CLIENTS] = {};
+	cout << hThreads << endl;
+	cout << HandleClient << endl;
+	cout << "Accept client connections..." << endl;
 	do
 	{
-		iResult = recv(client_socket, recv_buffer, BUFFER_LENGTH, 0);
-		if (iResult > 0)
-		{
-			cout << iResult << " Bytes received, Message " << recv_buffer << endl;
-			iSendResult = send(client_socket, send_buffer, sizeof(send_buffer), 0);
-			if (iSendResult == SOCKET_ERROR)
-			{
-				dwLastError = WSAGetLastError();
-				cout << "Send failed with error " << dwLastError << endl;
-				break;
-			}
-			cout << "Bytes sent: " << iSendResult << endl;
-		}
-		else if (iResult == 0)cout << "Connection closing" << endl;
-		else
+		client_sockets[n] = accept(listen_socket, NULL, NULL);
+		if (client_sockets[n] == INVALID_SOCKET)
 		{
 			dwLastError = WSAGetLastError();
-			cout << "Receive failed with error " << dwLastError << endl;
-			break;
+			cout << "Accept failed with error: " << dwLastError << endl;
+			closesocket(listen_socket);
+			freeaddrinfo(result);
+			WSACleanup();
+			return dwLastError;
 		}
-	} while (iResult>0);
-	closesocket(client_socket);
+		//HandleClient(client_socket);
+		hThreads[n] = CreateThread(NULL, 0, HandleClient, client_sockets + n, 0, threadIDs + n);
+		n++;
+	} while (true);
+
 	closesocket(listen_socket);
 	freeaddrinfo(result);
 	WSACleanup();
 	return dwLastError;
+}
+VOID HandleClient(SOCKET client_socket)
+{
+	INT iResult = 0;
+	DWORD dwLastError = 0;
+	//7)Получение запросов от клиента:
+	do
+	{
+		CHAR send_buffer[BUFFER_LENGTH] = "Привет клиент";
+		CHAR recv_buffer[BUFFER_LENGTH] = {};
+		INT iSendResult = 0;
+
+		iResult = recv(client_socket, recv_buffer, BUFFER_LENGTH, 0);
+		if (iResult > 0)
+		{
+			cout << iResult << " Bytes received, Message: " << recv_buffer << endl;
+			iSendResult = send(client_socket, recv_buffer, strlen(recv_buffer), 0);
+			if (iSendResult == SOCKET_ERROR)
+			{
+				dwLastError = WSAGetLastError();
+				cout << "Send failed with error: " << dwLastError << endl;
+				break;
+			}
+			cout << "Byte sent: " << iSendResult << endl;
+		}
+		else if (iResult == 0) cout << "Connection closing" << endl;
+		else
+		{
+			dwLastError = WSAGetLastError();
+			cout << "Receive failed with error: " << dwLastError << endl;
+			break;
+		}
+	} while (iResult > 0);
+	closesocket(client_socket);
 }
