@@ -7,6 +7,8 @@
 #include<WS2tcpip.h>
 #include<iphlpapi.h>
 #include<iostream>
+#include <vector> // Для хранения сокетов клиентов
+
 using namespace std;
 
 #pragma comment(lib, "WS2_32.lib")
@@ -15,7 +17,54 @@ using namespace std;
 #define BUFFER_LENGTH	  1460
 #define MAX_CLIENTS			 5
 
-VOID HandleClient(SOCKET client_socket);
+DWORD WINAPI HandleClient(LPVOID lpParam)// Принимает указатель на сокет клиента
+{
+	SOCKET client_socket = *(SOCKET*)lpParam; // Получаем дескриптор сокета клиента
+	INT iResult = 0;
+	DWORD dwLastError = 0;
+
+	cout << "Client connected on socket: " << client_socket << endl;
+
+	// 7) Получение запросов от клиента:
+	do
+	{
+		CHAR recv_buffer[BUFFER_LENGTH] = {};
+		iResult = recv(client_socket, recv_buffer, BUFFER_LENGTH, 0);
+
+		if (iResult > 0)
+		{
+			cout << "Received " << iResult << " bytes from client " << client_socket << ": "
+				<< recv_buffer << endl;
+
+			// Эхо-ответ клиенту
+			INT iSendResult = send(client_socket, recv_buffer, iResult, 0);
+			if (iSendResult == SOCKET_ERROR)
+			{
+				dwLastError = WSAGetLastError();
+				cout << "Send failed for client " << client_socket << " (Thread ID: " 
+					<< GetCurrentThreadId() << ") with error: " << dwLastError << endl;
+				break; // Прерываем цикл при ошибке отправки
+			}
+			cout << "Sent " << iSendResult << " bytes back to client " << client_socket << endl;
+		}
+		else if (iResult == 0)
+		{
+			cout << "Client " << client_socket << " disconnected." << endl;
+			break; // Клиент закрыл соединение
+		}
+		else
+		{
+			dwLastError = WSAGetLastError();
+			cout << "Receive failed for client " << client_socket << " (Thread ID: " 
+				<< GetCurrentThreadId() << ") with error: " << dwLastError << endl;
+			break; // Прерываем цикл при ошибке приема
+		}
+	} while (iResult > 0); // Продолжаем, пока есть данные и соединение активно
+
+	closesocket(client_socket);
+	cout << "Connection for client " << client_socket << " closed." << endl;
+	return 0;
+}
 
 int main()
 {
@@ -79,6 +128,7 @@ int main()
 	}
 
 	//5) Запускаем прослшивание сокета:
+	// SOMAXCONN - максимальное количество ожидающих соединений в очереди
 	iResult = listen(listen_socket, SOMAXCONN);
 	if (iResult == SOCKET_ERROR)
 	{
@@ -90,67 +140,75 @@ int main()
 		return dwLastError;
 	}
 
+	cout << "Server listening on port " << DEFAULT_PORT << "..." << endl;
+
 	//6) Обработка запросов от клиентов:
-	INT n = 0;	//Количество активных клиентов
-	SOCKET client_sockets[MAX_CLIENTS] = {};
-	DWORD threadIDs[MAX_CLIENTS] = {};
-	HANDLE hThreads[MAX_CLIENTS] = {};
-	cout << hThreads << endl;
-	cout << HandleClient << endl;
-	cout << "Accept client connections..." << endl;
+	vector<SOCKET> client_sockets; // Динамический массив для хранения сокетов клиентов
+	vector<HANDLE> hThreads;       // Динамический массив для хранения хэндлов потоков
+	vector<DWORD> threadIDs;       // Динамический массив для хранения ID потоков
+
 	do
 	{
-		client_sockets[n] = accept(listen_socket, NULL, NULL);
-		if (client_sockets[n] == INVALID_SOCKET)
+		// Принимаем новое подключение
+		SOCKET client_socket = accept(listen_socket, NULL, NULL);
+		if (client_socket == INVALID_SOCKET)
 		{
 			dwLastError = WSAGetLastError();
 			cout << "Accept failed with error: " << dwLastError << endl;
-			closesocket(listen_socket);
-			freeaddrinfo(result);
-			WSACleanup();
-			return dwLastError;
+			continue;
+	}
+
+		if (client_sockets.size() < MAX_CLIENTS)
+		{
+			// Добавляем сокет клиента в вектор
+			client_sockets.push_back(client_socket);
+
+			// Создаем новый поток для обработки данного клиента
+			// Передаем указатель на сокет клиента как параметр потока
+			HANDLE hThread = CreateThread(
+				NULL,                   // Атрибуты безопасности (NULL - стандартные)
+				0,                      // Размер стека (0 - по умолчанию)
+				HandleClient,           // Адрес функции, выполняемой потоком
+				&client_sockets.back(), // Параметр, передаваемый в функцию потока (указатель на последний добавленный сокет)
+				0,                      // Флаги создания (0 - поток запускается немедленно)
+				&threadIDs.back());     // Получаем ID потока
+
+			if (hThread == NULL)
+			{
+				dwLastError = GetLastError();
+				cout << "CreateThread failed with error: " << dwLastError << endl;
+				closesocket(client_socket);
+				client_sockets.pop_back();
+			}
+			else
+			{
+				// Добавляем хэндл потока в вектор
+				hThreads.push_back(hThread);
+				cout << "Client " << client_socket << " connected. Thread ID: " << 
+					threadIDs.back() << endl;
+			}
 		}
-		//HandleClient(client_socket);
-		hThreads[n] = CreateThread(NULL, 0, HandleClient, client_sockets + n, 0, threadIDs + n);
-		n++;
-	} while (true);
+		else
+		{
+			// Если достигнут лимит клиентов, отклоняем новое подключение
+			cout << "Max clients reached. Rejecting connection from " << client_socket << endl;
+			closesocket(client_socket);
+		}
+
+	} while (true); // Бесконечный цикл для приема новых подключений
+
+	// Очистка ресурсов
+	for (size_t i = 0; i < hThreads.size(); ++i)
+	{
+		CloseHandle(hThreads[i]);
+	}
+	for (size_t i = 0; i < client_sockets.size(); ++i)
+	{
+		closesocket(client_sockets[i]);
+	}
 
 	closesocket(listen_socket);
 	freeaddrinfo(result);
 	WSACleanup();
-	return dwLastError;
-}
-VOID HandleClient(SOCKET client_socket)
-{
-	INT iResult = 0;
-	DWORD dwLastError = 0;
-	//7)Получение запросов от клиента:
-	do
-	{
-		CHAR send_buffer[BUFFER_LENGTH] = "Привет клиент";
-		CHAR recv_buffer[BUFFER_LENGTH] = {};
-		INT iSendResult = 0;
-
-		iResult = recv(client_socket, recv_buffer, BUFFER_LENGTH, 0);
-		if (iResult > 0)
-		{
-			cout << iResult << " Bytes received, Message: " << recv_buffer << endl;
-			iSendResult = send(client_socket, recv_buffer, strlen(recv_buffer), 0);
-			if (iSendResult == SOCKET_ERROR)
-			{
-				dwLastError = WSAGetLastError();
-				cout << "Send failed with error: " << dwLastError << endl;
-				break;
-			}
-			cout << "Byte sent: " << iSendResult << endl;
-		}
-		else if (iResult == 0) cout << "Connection closing" << endl;
-		else
-		{
-			dwLastError = WSAGetLastError();
-			cout << "Receive failed with error: " << dwLastError << endl;
-			break;
-		}
-	} while (iResult > 0);
-	closesocket(client_socket);
+	return 0;
 }
