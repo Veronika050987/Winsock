@@ -302,7 +302,8 @@ VOID WINAPI HandleClient(LPVOID lpParam)
 				cout << "Получено " << iResult << " байт от " << address << ":" << port << ": " 
 					<< recv_buffer << endl;
 
-				string broadcast_msg = string("[") + address + ":" + to_string(port) + "] " + recv_buffer;
+				string broadcast_msg = string("[") + address + ":" + to_string(port) + "] " 
+					+ recv_buffer;
 				BroadcastMessage(broadcast_msg.c_str(), client_socket);
 			}
 			else if (iResult == 0)
@@ -323,13 +324,12 @@ VOID WINAPI HandleClient(LPVOID lpParam)
 				break; // Прерываем цикл при ошибке приема
 			}
 		} while (iResult > 0 && _stricmp(recv_buffer, "quit") != 0 && _stricmp(recv_buffer, "exit") != 0); 
-		// Продолжаем, пока есть данные и клиент не ввел quit/exit
 
-		// Клиент отключился или ввел команду выхода
 		cout << "Клиент " << address << ":" << port << " отключился." << endl;
 
 		// Находим индекс слота, который нужно освободить
 		int slot_to_free = -1;
+		WaitForSingleObject(g_hMutex, INFINITE);
 		for (int i = 0; i < MAX_CLIENTS; ++i)
 		{
 			if (client_sockets[i] == client_socket)
@@ -339,8 +339,6 @@ VOID WINAPI HandleClient(LPVOID lpParam)
 			}
 		}
 
-		WaitForSingleObject(g_hMutex, INFINITE);
-
 		if (slot_to_free != -1)
 		{
 			closesocket(client_sockets[slot_to_free]);
@@ -348,6 +346,12 @@ VOID WINAPI HandleClient(LPVOID lpParam)
 			threadIDs[slot_to_free] = 0; // Обнуляем ID потока
 			hThreads[slot_to_free] = NULL; // Обнуляем хэндл потока
 			g_activeClients--; // Уменьшаем счетчик активных клиентов
+
+			string disconnect_msg = string("--- Клиент ") + address + ":" + to_string(port) 
+				+ " отключился ---";
+			BroadcastMessage(disconnect_msg.c_str(), INVALID_SOCKET); 
+			// Отправляем всем, включая того, кто отключился (если он еще был в списке)
+
 
 			// Отображаем обновленное состояние сервера
 			DisplayServerStatus();
