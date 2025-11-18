@@ -43,6 +43,31 @@ void DisplayServerStatus()
 	ReleaseMutex(g_hMutex);
 }
 
+void BroadcastMessage(const char* message, SOCKET client_socket_sender)
+{
+	WaitForSingleObject(g_hMutex, INFINITE); // Блокируем доступ к спискам клиентов
+
+	cout << "Рассылка сообщения: '" << message << "'" << endl;
+
+	for (int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		// Проверяем, что слот занят и сокет действителен
+		if (client_sockets[i] != INVALID_SOCKET && client_sockets[i] != client_socket_sender)
+		{
+			// Отправляем сообщение
+			INT iSendResult = send(client_sockets[i], message, (int)strlen(message), 0);
+			if (iSendResult == SOCKET_ERROR)
+			{
+				DWORD dwLastError = WSAGetLastError();
+				cout << "Send failed to client socket " << client_sockets[i] << " with error: " 
+					<< dwLastError << endl;
+			}
+		}
+	}
+
+	ReleaseMutex(g_hMutex); // Разблокируем доступ
+}
+
 VOID WINAPI HandleClient(LPVOID lpParam);
 
 int main()
@@ -277,15 +302,8 @@ VOID WINAPI HandleClient(LPVOID lpParam)
 				cout << "Получено " << iResult << " байт от " << address << ":" << port << ": " 
 					<< recv_buffer << endl;
 
-				// Эхо-ответ клиенту
-				INT iSendResult = send(client_socket, recv_buffer, iResult, 0);
-				if (iSendResult == SOCKET_ERROR)
-				{
-					dwLastError = WSAGetLastError();
-					cout << "Send failed for client " << address << ":" << port << " with error: " 
-						<< dwLastError << endl;
-					break; // Прерываем цикл при ошибке отправки
-				}
+				string broadcast_msg = string("[") + address + ":" + to_string(port) + "] " + recv_buffer;
+				BroadcastMessage(broadcast_msg.c_str(), client_socket);
 			}
 			else if (iResult == 0)
 			{
@@ -295,7 +313,8 @@ VOID WINAPI HandleClient(LPVOID lpParam)
 			else
 			{
 				dwLastError = WSAGetLastError();
-				if (dwLastError != WSAECONNRESET && dwLastError != WSAETIMEDOUT && dwLastError != WSAEINTR) 
+				if (dwLastError != WSAECONNRESET && dwLastError != WSAETIMEDOUT && 
+					dwLastError != WSAEINTR) 
 					// Игнорируем некоторые распространенные ошибки при отключении
 				{
 					cout << "Receive failed for client " << address << ":" << port << " with error: " 
