@@ -1,4 +1,5 @@
-﻿#ifndef WIN32_LEAN_AND_MEAN
+﻿#define _CRT_SECURE_NO_WARNINGS
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif // !WIN32_LEAN_AND_MEAN
 
@@ -14,7 +15,7 @@ using namespace std;
 #define DEFAULT_PORT	"27015"
 #define BUFFER_LENGTH	  1460
 #define MAX_CLIENTS			 3
-#define g_sz_SORRY			"Error: Количество подключений превышено"
+#define g_sz_SORRY		"Error: Количество подключений превышено"
 #define IP_STR_MAX_LENGTH	16
 
 INT n = 0;	//Количество активных клиентов
@@ -98,7 +99,7 @@ int main()
 	}
 
 	//6) Обработка запросов от клиентов:
-	
+
 	cout << hThreads << endl;
 	cout << HandleClient << endl;
 	cout << "Accept client connections..." << endl;
@@ -115,7 +116,7 @@ int main()
 			return dwLastError;
 		}*/
 		//HandleClient(client_socket);
-		if (n<MAX_CLIENTS)
+		if (n < MAX_CLIENTS)
 		{
 			client_sockets[n] = client_socket;
 			hThreads[n] = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)HandleClient, (LPVOID)client_sockets[n], 0, threadIDs + n);
@@ -162,6 +163,16 @@ VOID Shift(INT start)
 	hThreads[MAX_CLIENTS - 1] = NULL;
 	n--;
 }
+VOID Broadcast(CONST CHAR message[], SOCKET source)
+{
+	for (int i = 0; i < n; i++)
+	{
+		if (client_sockets[i] != source)
+		{
+			INT iResult = send(client_sockets[i], message, strlen(message), 0);
+		}
+	}
+}
 VOID WINAPI HandleClient(SOCKET client_socket)
 {
 	SOCKADDR_IN peer{};
@@ -169,14 +180,14 @@ VOID WINAPI HandleClient(SOCKET client_socket)
 	INT address_length = IP_STR_MAX_LENGTH;
 	getpeername(client_socket, (SOCKADDR*)&peer, &address_length);
 	inet_ntop(AF_INET, &peer.sin_addr, address, address_length);
-	INT port = ((peer.sin_port & 0xFF)<<8) + (peer.sin_port>>8);
+	INT port = ((peer.sin_port & 0xFF) << 8) + (peer.sin_port >> 8);
 	cout << address << ":" << port << endl;
-	/////////////////////////
+	/////////////////////////////////////////////////////
 	INT iResult = 0;
 	DWORD dwLastError = 0;
 	//7)Получение запросов от клиента:
-		CHAR send_buffer[BUFFER_LENGTH] = "Привет клиент";
-		CHAR recv_buffer[BUFFER_LENGTH] = {};
+	CHAR send_buffer[BUFFER_LENGTH] = "Привет клиент";
+	CHAR recv_buffer[BUFFER_LENGTH] = {};
 	do
 	{
 		INT iSendResult = 0;
@@ -186,6 +197,8 @@ VOID WINAPI HandleClient(SOCKET client_socket)
 		if (iResult > 0)
 		{
 			cout << iResult << " Bytes received from " << address << ":" << port << " - " << recv_buffer << endl;
+			sprintf(send_buffer, "%i Bytes received from %s:%i - %s;\n", iResult, address, port, recv_buffer);
+			Broadcast(send_buffer, client_socket);
 			iSendResult = send(client_socket, recv_buffer, strlen(recv_buffer), 0);
 			if (iSendResult == SOCKET_ERROR)
 			{
@@ -205,7 +218,7 @@ VOID WINAPI HandleClient(SOCKET client_socket)
 	} while (iResult > 0 && !strstr(recv_buffer, "quit"));
 	DWORD dwID = GetCurrentThreadId();
 	Shift(GetSlotIndex(dwID));
-	cout << address << ":" << port << " leaved " << endl;
+	cout << address << ":" << port << " leaved" << endl;
 	ExitThread(0);
 	//ExitThread(GetExitCodeThread());
 	closesocket(client_socket);
